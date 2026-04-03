@@ -195,7 +195,8 @@ def main():
     app.add_handler(conv)
     print("✅ Бот запущен! Ctrl+C для остановки.")
 PORT = int(__import__('os').environ.get('PORT', 10000))
-    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', PORT), Handler).serve_forever(), daemon=True).start()    app.run_polling()
+    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', PORT), Handler).serve_forever(), daemon=True).start()    
+app.run_polling()
 
 if __name__ == "__main__":
     main()
