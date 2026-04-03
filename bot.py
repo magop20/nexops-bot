@@ -194,8 +194,8 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
     app.add_handler(conv)
     print("✅ Бот запущен! Ctrl+C для остановки.")
-    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', 10000), Handler).serve_forever(), daemon=True).start()
-    app.run_polling()
+PORT = int(__import__('os').environ.get('PORT', 10000))
+    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', PORT), Handler).serve_forever(), daemon=True).start()    app.run_polling()
 
 if __name__ == "__main__":
     main()
