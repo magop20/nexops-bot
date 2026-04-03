@@ -195,7 +195,7 @@ def main():
     app.add_handler(conv)
     PORT = int(__import__('os').environ.get('PORT', 10000))
     threading.Thread(target=lambda: HTTPServer(('0.0.0.0', PORT), Handler).serve_forever(), daemon=True).start()
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
