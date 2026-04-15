@@ -1,28 +1,22 @@
 import logging
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
-class Handler(BaseHTTPRequestHandler):
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b'OK')
-    def log_message(self, format, *args):
-        pass
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
+from telegram import (
+    Update, InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove
+)
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    filters, ContextTypes, ConversationHandler
+)
 
 # ══════════════════════════════════════════
 # НАСТРОЙКИ
 # ══════════════════════════════════════════
-TOKEN = "8637969737:AAEEgbeCABVYymkX435S38TEyTiioYJsNHo"
-ADMIN_CHAT_ID = 143516369
-ADMIN_USERNAME = "@albega1"
+TOKEN       = "8637969737:AAEEgbeCABVYymkX435S38TEyTiioYJsNHo"
+ADMIN_ID    = 143516369
+ADMIN_USER  = "@albega1"
 
-# Пути к файлам
 FILES = {
     "opdir_a1": "leads/opdir/checklist-opdir.pdf",
     "opdir_b1": "leads/opdir/tracking-rnp.xlsx",
@@ -39,11 +33,11 @@ NAMES = {
     "opdir_b1": "Трекинг-отчёт РНП",
     "opdir_c1": "7 признаков узкого горлышка",
     "strat_ch": "Чеклист подготовки к стратсессии",
-    "strat_b1": "Стратсессия или спектакль",
+    "strat_b1": "Стратсессия или спектакль?",
     "strat_a2": "Тест командной синхронизации",
     "strat_b2": "Дорожная карта стратсессии",
-    "strat_c1": "Как не дать стратегии умереть через месяц",
-    "consult":  "Заявка на диагностику",
+    "strat_c1": "Как не дать стратегии умереть",
+    "consult":  "заявка на диагностику",
 }
 
 ASK_NAME, ASK_REVENUE, ASK_PHONE = range(3)
@@ -52,128 +46,185 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+# ══════════════════════════════════════════
+# HEALTH-CHECK СЕРВЕР (для Render.com)
+# ══════════════════════════════════════════
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+    def log_message(self, *args):
+        pass  # тишина в логах
+
+def run_health_server():
+    server = HTTPServer(("0.0.0.0", 10000), HealthHandler)
+    server.serve_forever()
+
+
+# ══════════════════════════════════════════
+# ГЛАВНОЕ МЕНЮ
+# ══════════════════════════════════════════
+def get_main_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("── Операционный директор ──", callback_data="noop")],
-        [InlineKeyboardButton("📋 Готов ли бизнес к опердиру (PDF)", callback_data="opdir_a1")],
-        [InlineKeyboardButton("📊 Трекинг-отчёт РНП (Excel)", callback_data="opdir_b1")],
-        [InlineKeyboardButton("🔴 7 признаков узкого горлышка (PDF)", callback_data="opdir_c1")],
-        [InlineKeyboardButton("── Стратегическая сессия ──", callback_data="noop")],
+        [InlineKeyboardButton("📋 Готов ли бизнес к опердиру (PDF)",     callback_data="opdir_a1")],
+        [InlineKeyboardButton("📊 Трекинг-отчёт РНП (Excel)",            callback_data="opdir_b1")],
+        [InlineKeyboardButton("🔴 7 признаков узкого горлышка (PDF)",    callback_data="opdir_c1")],
+        [InlineKeyboardButton("── Стратегическая сессия ──",             callback_data="noop")],
         [InlineKeyboardButton("✅ Чеклист подготовки к стратсессии (PDF)", callback_data="strat_ch")],
-        [InlineKeyboardButton("🎭 Стратсессия или спектакль? (PDF)", callback_data="strat_b1")],
-        [InlineKeyboardButton("🧪 Тест командной синхронизации (PDF)", callback_data="strat_a2")],
-        [InlineKeyboardButton("🗺 Дорожная карта стратсессии (Excel)", callback_data="strat_b2")],
-        [InlineKeyboardButton("📄 Как не дать стратегии умереть (PDF)", callback_data="strat_c1")],
-        [InlineKeyboardButton("── ── ──", callback_data="noop")],
-        [InlineKeyboardButton("💬 Оставить заявку на диагностику", callback_data="consult")],
-    ]
-    text = "👋 Привет! Я бот Nexops.\n\nВыберите что хотите получить 👇"
-    markup = InlineKeyboardMarkup(keyboard)
+        [InlineKeyboardButton("🎭 Стратсессия или спектакль? (PDF)",     callback_data="strat_b1")],
+        [InlineKeyboardButton("🧪 Тест командной синхронизации (PDF)",   callback_data="strat_a2")],
+        [InlineKeyboardButton("🗺 Дорожная карта стратсессии (Excel)",   callback_data="strat_b2")],
+        [InlineKeyboardButton("📄 Как не дать стратегии умереть (PDF)",  callback_data="strat_c1")],
+        [InlineKeyboardButton("──────────────────",                       callback_data="noop")],
+        [InlineKeyboardButton("💬 Оставить заявку на диагностику",       callback_data="consult")],
+    ])
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Точка входа — показываем меню."""
+    context.user_data.clear()  # сбрасываем любое старое состояние
+    text = (
+        "👋 Привет! Я бот Nexops.\n\n"
+        "Выберите что хотите получить 👇"
+    )
     if update.message:
-        await update.message.reply_text(text, reply_markup=markup)
+        await update.message.reply_text(text, reply_markup=get_main_keyboard())
     elif update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=markup)
+        await update.callback_query.message.reply_text(text, reply_markup=get_main_keyboard())
 
 
+# ══════════════════════════════════════════
+# КНОПКА ВЫБРАНА — спрашиваем имя
+# ══════════════════════════════════════════
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["file_key"] = query.data
-    context.user_data["file_name"] = NAMES.get(query.data, "материал")
+
+    key = query.data
+    context.user_data["file_key"]  = key
+    context.user_data["file_name"] = NAMES.get(key, "материал")
+
     await query.message.reply_text(
-        "Отлично! Пришлю прямо сейчас.\n\n"
-        "Сначала пара вопросов — займёт 30 секунд.\n\n"
-        "Как вас зовут?"
+        f"Отлично! Пришлю *{NAMES.get(key, 'материал')}* прямо сейчас.\n\n"
+        "Сначала пара вопросов — 30 секунд.\n\n"
+        "Как вас зовут?",
+        parse_mode="Markdown"
     )
     return ASK_NAME
 
 
+# ══════════════════════════════════════════
+# ШАГ 1 — ИМЯ
+# ══════════════════════════════════════════
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
-    keyboard = [
-        ["До 30 млн ₽", "30–100 млн ₽"],
-        ["100–500 млн ₽", "Больше 500 млн ₽"],
-    ]
+
+    keyboard = ReplyKeyboardMarkup(
+        [["До 30 млн ₽", "30–100 млн ₽"], ["100–500 млн ₽", "Больше 500 млн ₽"]],
+        one_time_keyboard=True, resize_keyboard=True
+    )
     await update.message.reply_text(
-        f"Приятно познакомиться, {context.user_data['name']}! 👋\n\n"
+        f"Приятно познакомиться, {update.message.text}! 👋\n\n"
         "Какая примерно годовая выручка вашего бизнеса?",
-        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        reply_markup=keyboard
     )
     return ASK_REVENUE
 
 
+# ══════════════════════════════════════════
+# ШАГ 2 — ВЫРУЧКА
+# ══════════════════════════════════════════
 async def ask_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["revenue"] = update.message.text
+
     await update.message.reply_text(
         "Хорошо! Последний вопрос.\n\n"
-        "Оставьте номер телефона — пришлю материал и при необходимости свяжемся:",
+        "Укажите ваш телефон или Telegram-username — Денис свяжется лично:",
         reply_markup=ReplyKeyboardRemove()
     )
     return ASK_PHONE
 
 
+# ══════════════════════════════════════════
+# ШАГ 3 — ТЕЛЕФОН → отправляем файл
+# ══════════════════════════════════════════
 async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["phone"] = update.message.text
-    name      = context.user_data.get("name", "—")
-    revenue   = context.user_data.get("revenue", "—")
-    phone     = context.user_data.get("phone", "—")
-    file_key  = context.user_data.get("file_key")
-    file_name = context.user_data.get("file_name", "материал")
-    tg_user   = update.message.from_user
-    tg_link   = f"@{tg_user.username}" if tg_user.username else f"id:{tg_user.id}"
 
-    await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
+    name     = context.user_data.get("name", "—")
+    revenue  = context.user_data.get("revenue", "—")
+    phone    = update.message.text
+    file_key = context.user_data.get("file_key", "")
+    file_name = context.user_data.get("file_name", "материал")
+
+    # Уведомление Денису
+    await update.get_bot().send_message(
+        chat_id=ADMIN_ID,
         text=(
             f"🔔 Новый лид из бота!\n\n"
             f"👤 Имя: {name}\n"
             f"💰 Выручка: {revenue}\n"
-            f"📞 Телефон: {phone}\n"
-            f"📱 Telegram: {tg_link}\n"
-            f"📦 Запросил: {file_name}"
+            f"📞 Контакт: {phone}\n"
+            f"📎 Запросил: {file_name}\n"
+            f"🆔 Telegram ID: {update.effective_user.id}"
         )
     )
 
-    await update.message.reply_text(f"Спасибо, {name}! Отправляю прямо сейчас 👇")
+    # Отправка файла пользователю
+    await update.message.reply_text(f"Отправляю {file_name} прямо сейчас 👇")
 
-    if file_key and file_key in FILES:
+    if file_key in FILES:
         try:
             with open(FILES[file_key], "rb") as f:
                 await update.message.reply_document(
                     document=f,
-                    caption=f"📎 {file_name}\n\nПо вопросам: {ADMIN_USERNAME}"
+                    caption=f"📎 {file_name}\n\nПо вопросам: {ADMIN_USER}"
                 )
         except FileNotFoundError:
+            logger.error(f"Файл не найден: {FILES[file_key]}")
             await update.message.reply_text(
-                f"📎 Файл пришлём в ближайшее время.\n"
-                f"Напишите напрямую: {ADMIN_USERNAME}"
+                f"Файл пришлём в ближайшее время. Напишите напрямую: {ADMIN_USER}"
             )
-    else:
+    elif file_key == "consult":
         await update.message.reply_text(
-            "✅ Заявка принята! Денис свяжется в течение нескольких часов.\n\n"
-            "Пока почитайте материалы: https://media.nexops.ru"
+            f"✅ Заявка принята! Денис свяжется в течение нескольких часов.\n\n"
+            f"Пока почитайте материалы: https://media.nexops.ru"
         )
 
-    keyboard = [
-        [InlineKeyboardButton("🌐 Сайт Nexops", url="https://nexops.ru")],
-        [InlineKeyboardButton("📚 Медиа — статьи и материалы", url="https://media.nexops.ru")],
-        [InlineKeyboardButton("💬 Написать Денису", url="https://t.me/denismatyushin")],
-        [InlineKeyboardButton("🔄 Получить другой материал", callback_data="restart")],
-    ]
+    # Финальные кнопки
     await update.message.reply_text(
         "Если есть вопросы — всегда на связи:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌐 Сайт Nexops", url="https://nexops.ru")],
+            [InlineKeyboardButton("📚 Медиа — статьи", url="https://media.nexops.ru")],
+            [InlineKeyboardButton("🔄 Получить другой материал", callback_data="restart")],
+        ])
     )
     return ConversationHandler.END
 
 
+# ══════════════════════════════════════════
+# РЕСТАРТ
+# ══════════════════════════════════════════
 async def restart_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data.clear()
     await start(update, context)
 
+
+async def noop_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Разделители — просто сбрасываем callback."""
+    await update.callback_query.answer()
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     await update.message.reply_text(
         "До встречи! Напишите /start когда понадоблюсь.",
         reply_markup=ReplyKeyboardRemove()
@@ -181,24 +232,43 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# ══════════════════════════════════════════
+# ЗАПУСК
+# ══════════════════════════════════════════
 def main():
+    # Запускаем health-check сервер в фоне (нужен для Render.com)
+    t = threading.Thread(target=run_health_server, daemon=True)
+    t.start()
+
     app = Application.builder().token(TOKEN).build()
+
+    # ConversationHandler с allow_reentry=True — ключевой фикс!
     conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button_handler, pattern="^(?!restart$|noop$).*")],
+        entry_points=[
+            CallbackQueryHandler(button_handler, pattern="^(?!restart$|noop$).*")
+        ],
         states={
             ASK_NAME:    [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
             ASK_REVENUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_revenue)],
             ASK_PHONE:   [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_phone)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CommandHandler("start", start),
+            # Если в середине диалога нажали другую кнопку — перезапускаем
+            CallbackQueryHandler(button_handler, pattern="^(?!restart$|noop$).*"),
+        ],
+        allow_reentry=True,  # ФИКС: разрешаем повторный вход в диалог
     )
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(restart_handler, pattern="^restart$"))
-    app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
+    app.add_handler(CallbackQueryHandler(noop_handler, pattern="^noop$"))
     app.add_handler(conv)
-    PORT = int(__import__('os').environ.get('PORT', 10000))
-    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', PORT), Handler).serve_forever(), daemon=True).start()
+
+    print("✅ Бот запущен!")
     app.run_polling(drop_pending_updates=True)
+
 
 if __name__ == "__main__":
     main()
