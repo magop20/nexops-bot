@@ -14,7 +14,7 @@ from telegram.ext import (
 # ══════════════════════════════════════════
 # НАСТРОЙКИ
 # ══════════════════════════════════════════
-TOKEN       = os.environ["NEXOPS_BOT_TOKEN"]
+TOKEN       = os.environ["BOT_TOKEN"]
 ADMIN_ID    = 143516369
 ADMIN_USER  = "@albega1"
 
