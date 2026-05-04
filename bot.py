@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import (
@@ -13,7 +14,7 @@ from telegram.ext import (
 # ══════════════════════════════════════════
 # НАСТРОЙКИ
 # ══════════════════════════════════════════
-TOKEN       = "8637969737:AAEEgbeCABVYymkX435S38TEyTiioYJsNHo"
+TOKEN       = os.environ["NEXOPS_BOT_TOKEN"]
 ADMIN_ID    = 143516369
 ADMIN_USER  = "@albega1"
 
