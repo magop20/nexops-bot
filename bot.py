@@ -1,6 +1,8 @@
 import logging
 import os
+import json
 import threading
+import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import (
     Update, InlineKeyboardMarkup, InlineKeyboardButton,
@@ -58,6 +60,51 @@ class HealthHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.send_response(200)
         self.end_headers()
+
+    def do_POST(self):
+        # Релей заявок: TimeWeb не может достучаться до Telegram, поэтому lead.php
+        # шлёт заявку сюда (Render дотягивается до Telegram) с общим секретом.
+        if self.path.rstrip("/") != "/lead":
+            self.send_response(404); self.end_headers(); return
+        secret = os.environ.get("LEAD_RELAY_SECRET", "")
+        if not secret or self.headers.get("X-Lead-Secret") != secret:
+            self.send_response(403); self.end_headers()
+            self.wfile.write(b'{"error":"forbidden"}'); return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0 or length > 16384:
+                self.send_response(413); self.end_headers(); return
+            data = json.loads(self.rfile.read(length))
+        except Exception:
+            self.send_response(400); self.end_headers()
+            self.wfile.write(b'{"error":"bad_request"}'); return
+
+        skip = {"subdomain", "form_name", "privacy_consent", "marketing_consent", "company_url"}
+        sub = str(data.get("subdomain", ""))[:40]
+        fn = str(data.get("form_name", ""))[:60]
+        lines = [f"Заявка [{sub}/{fn}]"]
+        for i, (k, v) in enumerate(data.items()):
+            if i >= 40 or k in skip:
+                continue
+            lines.append(f"{k}: {str(v)[:1000]}")
+        lines.append("")
+        lines.append("ПД: " + ("да" if data.get("privacy_consent") else "нет"))
+        lines.append("Рассылка: " + ("да" if data.get("marketing_consent") else "нет"))
+        text = "\n".join(lines)
+        try:
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                data=json.dumps({"chat_id": ADMIN_ID, "text": text}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=15)
+            self.send_response(200); self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+        except Exception as e:
+            logger.error(f"lead relay send failed: {e}")
+            self.send_response(502); self.end_headers()
+            self.wfile.write(b'{"error":"send_failed"}')
+
     def log_message(self, *args):
         pass  # тишина в логах
 
