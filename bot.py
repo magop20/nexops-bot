@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import hashlib
 import threading
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -66,8 +67,10 @@ class HealthHandler(BaseHTTPRequestHandler):
         # шлёт заявку сюда (Render дотягивается до Telegram) с общим секретом.
         if self.path.rstrip("/") != "/lead":
             self.send_response(404); self.end_headers(); return
-        secret = os.environ.get("LEAD_RELAY_SECRET", "")
-        if not secret or self.headers.get("X-Lead-Secret") != secret:
+        # Секрет = sha256(токена бота). Тот же токен есть у lead.php на TimeWeb
+        # (_secrets.php), поэтому общий секрет не хранится нигде отдельно.
+        secret = hashlib.sha256(TOKEN.encode()).hexdigest()
+        if self.headers.get("X-Lead-Secret") != secret:
             self.send_response(403); self.end_headers()
             self.wfile.write(b'{"error":"forbidden"}'); return
         try:
