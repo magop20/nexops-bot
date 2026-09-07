@@ -2,6 +2,7 @@ import logging
 import os
 import json
 import hashlib
+import time
 import threading
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -53,6 +54,10 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════════
 # HEALTH-CHECK СЕРВЕР (для Render.com)
 # ══════════════════════════════════════════
+RELAY_RPM = 30   # заявок в минуту на весь релей
+_hits: list = []
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -67,6 +72,16 @@ class HealthHandler(BaseHTTPRequestHandler):
         # шлёт заявку сюда (Render дотягивается до Telegram) с общим секретом.
         if self.path.rstrip("/") != "/lead":
             self.send_response(404); self.end_headers(); return
+
+        # Рейт-лимит на самом релее. Секрет это sha256(токена): его утечка откуда
+        # угодно давала бы неограниченный спам в личку в обход лимита lead.php,
+        # потому что здесь никакого лимита не было вовсе.
+        now = time.time()
+        _hits[:] = [t for t in _hits if now - t < 60]
+        if len(_hits) >= RELAY_RPM:
+            self.send_response(429); self.end_headers()
+            self.wfile.write(b'{"error":"rate_limited"}'); return
+        _hits.append(now)
         # Секрет = sha256(токена бота). Тот же токен есть у lead.php на TimeWeb
         # (_secrets.php), поэтому общий секрет не хранится нигде отдельно.
         secret = hashlib.sha256(TOKEN.encode()).hexdigest()
